@@ -16,6 +16,8 @@ from collections.abc import Iterable
 
 from math import ceil,floor
 
+import numpy as np
+
 class LoopDefault:
 
     y=50
@@ -311,7 +313,7 @@ class Loops(Loop):
 
         return x
 
-class Via(pc.PartWithLayer):
+class Vias(pc.PartWithLayer):
 
     metal_size=pt.LayoutParamInterface()
 
@@ -319,34 +321,69 @@ class Via(pc.PartWithLayer):
 
     metal_layers=pt.LayoutParamInterface()
 
+    nx=pt.LayoutParamInterface()
+
+    ny=pt.LayoutParamInterface()
+
     def __init__(self,*args,**kwargs):
 
         super().__init__(*args,**kwargs)
         self.metal_size=10
-        self.cut_size=8
+        self.cut_size=5
         self.metal_layers=(1,2)
+        self.layer=(3)
+        self.nx=3
+        self.ny=1
 
     def draw(self):
 
+        unit_cell=self._draw_unit()
+
+        cell=dl.Device(self.name)
+
+        metal_size=self._vectorize_param(self.metal_size)
+        
+        cell.add_array(unit_cell,self.nx,self.ny,spacing=(metal_size[0],metal_size[1]))
+
+        return cell
+    
+    def _draw_unit(self):
+
         metal_size=self._vectorize_param(self.metal_size)
         cut_size=self._vectorize_param(self.cut_size)
-        # cell=pg.rectangle(size/=metal_size,layer=
-            
+        cell=pg.rectangle(size=metal_size,layer=self.metal_layers)
+        cut=cell<<pg.rectangle(size=cut_size,layer=self.layer)
+        cell.align(alignment='x')
+        cell.align(alignment='y')
+        
         return cell
-
+      
+    
     def _vectorize_param(self,param):
 
-        if len(param)==2:
+        if not isinstance(param,Iterable):
+
+            return (param,param)
+        
+        elif len(param)==2:
 
             return param
         
-        elif len(param)==1:
-
-            return (param,param)
-
         else:
 
-            raise ValueError(f""" {param} sneeds to have dimension 1 or 2""")
+            raise ValueError("boom")
+    
+    def load(self,d):
+
+        self.metal_size=d["metal_size"]
+
+        self.cut_size=d["cut_size"]
+
+        self.layer=d["layer"]
+
+        self.metal_layers=d["metal_layers"]
+
+OA_OB_Via={"metal_size":2.4,"cut_size":1.2,"layer":3,"metal_layers":[1,2]}
 
 
 
