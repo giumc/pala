@@ -136,7 +136,7 @@ class Loop(HalfLoop):
     
         h1=cell<<HalfLoop.draw(self)
 
-        self.y=self.y-self.y_offset
+        self.y=self.y-self.y_offset-self.w
 
         self.x=self.x-self.x_gap/2
 
@@ -171,19 +171,19 @@ class Loops(Loop):
         
     def draw(self):
 
+        cell=pg.Device(name=self.name)
+
         self._check_params()
         
         x0=self.x
         
         y0=self.y
 
-        cell=pg.Device(name=self.name)
-
         n=ceil(self.n)
 
-        w=self._vectorize_param(self.w)
-
         xg0=self.x_gap
+
+        w=self._vectorize_param(self.w)
 
         x_off=self._vectorize_param(self.x_offset)
 
@@ -191,7 +191,7 @@ class Loops(Loop):
         
         loops=[]
 
-        for i,w,x,y in zip(range(n),w,x_off,y_off):
+        for i,w_o,x_o,y_o in zip(range(n),w,x_off,y_off):
             
             if i%2==0:
 
@@ -200,21 +200,21 @@ class Loops(Loop):
 
                 self.x_gap=-xg0
 
-            self.w=w
+            self.w=w_o
             
-            self.y_offset=y
+            self.y_offset=y_o
+
+            self.x_offset=x_o
 
             loops.append(Loop.draw(self))  
 
-            self.y=self.y-2*y
+            self.y=self.y-2*y_o
 
-            self.x=self.x-2*x
+            self.x=self.x-2*x_o-w_o
 
         loop_refs=[cell<<loops[0]]
 
         for i in range(1,n):
-
-            print(f"""bum{i}""")
 
             if not i==n-1:
 
@@ -235,9 +235,7 @@ class Loops(Loop):
                     self.x=x0/2-sum(x_off[:-1])
 
                     self.y=y0-2*sum(y_off[:-1])
-
-                    # print(f"""{x} and {y}""")
-                    
+  
                     loop_refs.append(cell<<HalfLoop.draw(self))
 
                     loop_refs[i].connect('s',loop_refs[i-1].ports['n']) 
@@ -285,6 +283,10 @@ class Loops(Loop):
                 self.x=x0
                 
                 self.y=y0
+
+                cell.add_port(port=loop_refs[0].ports["s"],name="s")
+
+                cell.add_port(port=loop_refs[-1].ports["n"],name="n")
                 
         return cell
     
@@ -319,7 +321,7 @@ class Vias(pc.PartWithLayer):
 
     cut_size=pt.LayoutParamInterface()
 
-    metal_layers=pt.LayoutParamInterface()
+    metal_layer=pt.LayoutParamInterface()
 
     nx=pt.LayoutParamInterface()
 
@@ -330,8 +332,8 @@ class Vias(pc.PartWithLayer):
         super().__init__(*args,**kwargs)
         self.metal_size=10
         self.cut_size=5
-        self.metal_layers=(1,2)
-        self.layer=(3)
+        self.metal_layer=(1,2)
+        self.layer=(3,)
         self.nx=3
         self.ny=1
 
@@ -351,7 +353,7 @@ class Vias(pc.PartWithLayer):
 
         metal_size=self._vectorize_param(self.metal_size)
         cut_size=self._vectorize_param(self.cut_size)
-        cell=pg.rectangle(size=metal_size,layer=self.metal_layers)
+        cell=pg.rectangle(size=metal_size,layer=self.metal_layer)
         cut=cell<<pg.rectangle(size=cut_size,layer=self.layer)
         cell.align(alignment='x')
         cell.align(alignment='y')
@@ -381,10 +383,111 @@ class Vias(pc.PartWithLayer):
 
         self.layer=d["layer"]
 
-        self.metal_layers=d["metal_layers"]
+        self.metal_layer=d["metal_layer"]
 
-OA_OB_Via={"metal_size":2.4,"cut_size":1.2,"layer":3,"metal_layers":[1,2]}
+OA_OB_Via={"metal_size":2.4,"cut_size":1.2,"layer":3,"metal_layer":[1,2]}
 
+class TwoLayerLoops(pc.PartWithLayer):
 
+    def draw(self):
 
+        cell=dl.Device(self.name)
+        
+        topcell=cell<<self.toploop.draw()
+
+        bottomcell=cell<<self.bottomloop.draw()
+
+        viacell=cell<<self.vias.draw()
+
+        bottomcell.mirror((0,0),(1,0))
+
+        bottomcell.connect('n',topcell.ports['n'])
+
+        vp=pst.get_corners(viacell)
+
+        viacell.move(origin=vp.c.coord,destination=topcell.ports['n'].midpoint)
+
+        cell.add_port(port=topcell.ports["s"],name='p1')
+
+        cell.add_port(port=bottomcell.ports["s"],name='p2')
+
+        return cell
     
+    @staticmethod
+    def get_components():
+
+        return {'toploop':Loops,"bottomLoop":Loops,"vias":Vias}
+
+class DifferentialLoops(Loops):
+
+    def draw(self):
+
+        self._check_params()
+
+        x0=self.x
+
+        y0=self.y
+
+        xg0=self.x_gap
+
+        self.x_gap=0
+
+        x_off=self._vectorize_param(self.x_offset)
+
+        y_off=self._vectorize_param(self.y_offset)
+
+        w=self._vectorize_param(self.w)
+
+        n=ceil(self.n)
+
+        self.x=(x0-xg0)/2
+
+        hcell=dl.Device(self.name)
+
+        hlrefs=[]
+
+        for i,width,x,y in zip(range(n),w,x_off,y_off):
+
+            self.w=width
+
+            hlrefs.append(hcell<<HalfLoop.draw(self))
+
+            self.x=self.x-x
+
+            self.y=self.y-2*y
+
+            lasthl=hlrefs[-1]
+            
+            if i>0 and i%2==0:
+
+                lasthl.connect('s',hlrefs[-2].ports['s'])
+
+                lasthl.move(destination=(-xg0/2,y))
+
+            elif i>0 and i%2==1:
+                
+                lasthl.mirror((0,0),(0,1))
+                
+                lasthl.connect('n',hlrefs[-2].ports['n'])
+
+                lasthl.move(destination=(xg0/2,-y))
+        
+        cell=dl.Device(self.name)
+
+        h1=cell<<hcell
+
+        h2=cell<<hcell
+
+        h2.mirror((0,0),(0,1))
+
+        h2.movex(xg0/2)
+
+        return cell
+
+        return cell
+            
+    @staticmethod
+    def get_components():
+        
+        return {"vias":Vias}
+
